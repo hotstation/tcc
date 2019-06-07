@@ -1,0 +1,553 @@
+//bibliotecas wifi
+#include <WiFi.h>
+//blibioteca bluetooth
+#include "BluetoothSerial.h"
+//biblioteca do sensor de corrente
+#include "EmonLib.h" //sensor de corrent sct013
+
+////////////////////////////////////////////////////////////////
+//bibliotecas emolib e suas variaveis SENDOR SCT013
+
+EnergyMonitor SCT013;
+int pinSCT = 34;   //Pino analógico conectado ao SCT-013 
+
+
+float potencia;
+//float Irms ;
+
+
+/////////////////////////////////////////////////////////////////
+//variaveis para conexao wifi
+
+
+const char* ssid     = "";
+const char* password = "";
+
+/////////////////////////////////////////////////////////////////
+//variaveis para servidor
+const char* host = "192.168.1.32";
+int var_id=1;//id do usuario no servidor
+float consumo_watt ;//mede o consumo em watt
+float consumo_kwh ;//mede consumo o kwh
+String credito_in ;//credito a ser inserido no servidor
+String estado ; //estado desligado se credito_in menor que consumo_kvh 
+
+    WiFiClient client; //tambem utilizado no servidor TS
+
+
+
+/////////////////////////////////////////////////////////////////
+//para filtrar os dados recebidos do banco de dados
+
+
+int aux = 0;
+String mexico;
+String cred_recebido;
+float cred_recebido_f;
+String obs;
+String link_enviar;
+String link_serv;
+String consumo_total_rec;
+
+int i = 0;
+int j = 0;
+
+/////////////////////////////////////////////////////////////////
+// enviar chart para thingspeak
+const char * hostDomain_ts = "api.thingspeak.com";
+const int hostPort = 80; 
+String myWriteAPIKey = "75QR6KE1JE2ICIUH";//chave pre_pago
+
+
+/////////////////////////////////////////////////////////////////
+//variaveis de entrada e saida GPIO
+int f1_d2 = 2;//GPIO d2 de saida
+/////////////////////////////////////////////////////////////////
+//variaveis para antifraude
+const int pinoChave = 26; //PINO DIGITAL UTILIZADO PELA CHAVE FIM DE CURSO
+byte estado_porta=0;//porta aberta
+byte estado_porta2=0;//porta aberta
+int estado_porta3=1;//contador para enviar somente uma vez para o serv
+/////////////////////////////////////////////////////////////////
+//TIMER para contagem do tempo em segundos assim com marcadores
+//podemos fazer im IF com o tempo desejado
+volatile int interruptCounter;
+int totalInterruptCounter;
+ 
+hw_timer_t * timer = NULL;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+ 
+void IRAM_ATTR onTimer() {
+  portENTER_CRITICAL_ISR(&timerMux);
+  interruptCounter++;
+  portEXIT_CRITICAL_ISR(&timerMux);}
+
+///////////////////////////////////////////////////////////////
+//chamando funcao de media de tensao
+int mediaTensao();
+
+/////////////////////////////////////////////////////////////
+int contador ;//variavel para contar o tempo do consumo
+int conta5;//variavel de tempo para enviar sql
+int conta16;//variavel de tempo para thinkspeack
+int conta3; //variavel de tempo para religacao apos credito inserido
+int aciona_conta3;//na mudanca ele ele aciona conta 3  
+
+
+////////////////////////////////////////////////////////////////
+//bluetooth variaveis e outros globais
+ 
+   #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+BluetoothSerial SerialBT;
+
+
+////////////////////////////////////////////////////////////////
+// declaracao da funcao que esta no final do codigo
+int mediaTensao();
+
+
+/////////////////////////////////////////////////////////////////
+///////// INICIO DO SETUP ///////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+void setup() {
+/////////////////////////////////////////////////////////////////
+//GPIO de entrada
+
+ //-------------------------------------------------------------
+ //GPIO de saida 
+ pinMode(f1_d2, OUTPUT);
+ //sensor fim de curso anti fraude
+ pinMode(pinoChave, INPUT); 
+
+  /////////////////////////////////////////////////////////////////
+  //iniciando conexao serial
+  Serial.begin(115200);
+  delay(10);
+
+/////////////////////////////////////////////////////////////////
+//SENDOR DE CORRENTE SCT013
+
+
+SCT013.current(pinSCT,6.0606 );
+
+/////////////////////////////////////////////////////////////////
+  // CONECTANDO COM A INTERNET
+
+  Serial.println();
+  Serial.println();
+  Serial.print("CONECTANTO COM ");
+  //Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi conectado");
+  Serial.println("endereco IP: ");
+  Serial.println(WiFi.localIP());
+/////////////////////////////////////////////////////////////////
+  //timer para contagem do tempo em segundos assim podemos 
+  //medir o tempo atraves do IF
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+    timerAlarmWrite(timer, 1000000, true);
+    timerAlarmEnable(timer);
+    //FIM DO TIMER
+
+
+/////////////////////////////////////////////////////////////////
+  //bluetooth
+ SerialBT.begin("ESP32test"); //Bluetooth device name
+ // Serial.println("blutoooth iniciado!");
+
+/////////////////////////////////////////////////////////////////
+  //valores inicias para as variaveis
+
+consumo_kwh = 0 ;
+contador =0;
+estado = "desligado";
+credito_in = "1000000001";
+cred_recebido_f = 0;
+conta5=0;
+conta16=0;
+aciona_conta3=0;
+conta3=0;
+
+
+/////////////////////////////////////////////////////////////////
+//valores inicias para as entradas e saidas GPIO
+digitalWrite(f1_d2, LOW);  
+
+
+////////////////////////////////////////////////////////////////
+//resolucao da biblioteca emolib
+//analogReadResolution(ADC_BITS);
+
+}
+/////////////////////////////////////////////////////////////////
+///////// LOOOOOOOOOOPP//////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+void loop() {
+
+
+////////////////////////////////////////////////////////////////
+//sensor anti fraude
+estado_porta = digitalRead(pinoChave); 
+if (estado_porta== 0){ estado_porta2=0; estado_porta3=1; } 
+/////////////////////////////////////////////////////////////////
+//////////CONTADOR DE TEMPO//////////////////////////////////////
+
+   if (interruptCounter > 0) {
+ 
+    portENTER_CRITICAL(&timerMux);
+    interruptCounter--;
+    portEXIT_CRITICAL(&timerMux);
+ 
+    totalInterruptCounter++;//conta o total de interrupcoes (1 segundo)
+ conta5++; //conta ate 5 e e zerado na parte que enviar apra o servidor mysql
+ conta16++;//conta ate 16 e eu zero na parte thinkspeack
+ contador++; //conta um segundo que e zerado quano incrementado o valor de consumo
+if (aciona_conta3==1) { conta3++;}//na mudanca de estado ele conta 3 para ligar d2
+ 
+ 
+  }
+
+/////////////////////////////////////////////////////////
+//reiniciar os comandos recebidos pelo servidor
+      obs="";
+      cred_recebido="";
+      mexico="";
+      link_serv="";
+       consumo_total_rec = "";
+      String msg1="";//vaviavel ble
+      
+
+/////////////////////////////////////////////////////////
+//programa ble ler o que o q e digitado no serial do ble
+  while (SerialBT.available()) { 
+    
+   char msg = (SerialBT.read());
+    msg1 += msg;
+   
+  }
+ if ( (msg1!=credito_in) && msg1!=""){credito_in="";credito_in=msg1;}
+msg1="";
+
+
+/////////////////////////////////////////////////////////////
+//a cada 1 segnndo calcula
+if ( ( contador > 0 )  ){
+  potencia=0;
+  //Irms=0;
+  contador=0;
+
+  int  tensao=59.1949*(mediaTensao()*0.0007326);//K*bits*Resolução, sendo: K = Saida/Entrada; bits= leitura Analogica entregue; Resolução = TensãoDeReferêcia/2^(n)-1
+ Serial.print("tensao");
+ Serial.println(tensao);
+  
+float Irms = SCT013.calcIrms(1480);   // Calcula o valor da Corrente
+ potencia = Irms * tensao;          // Calcula o valor da Potencia Instantanea 
+ 
+ if ( (totalInterruptCounter < 31) || (conta3 < 4) ){potencia=0;consumo_kwh=0;} 
+ 
+else { consumo_kwh +=  (potencia/60.0 );  }
+
+
+
+
+}
+
+
+///////////////////////////////////////////////////////////
+ //a cada 5 segundos conecta com o servidor sql
+
+ if(conta5 > 4){
+  conta5=0;
+
+
+  String link_enviar = "";//zera link enviar
+        
+link_enviar += totalInterruptCounter;
+link_enviar += ",";
+link_enviar += consumo_kwh;
+
+//Serial.print(" link_enviar= ");
+//Serial.println(link_enviar);
+
+///////////////////////////////////////////////////////////
+ //conectanto ao servidor
+
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort)) {
+    Serial.println("falha na conexao");
+    return;
+  }  
+   
+
+/////////////////////////////////////////////////////////////////////////
+  // criando a URL para enviar e receber do servidor
+  String url = "/tccfatecsa/pre/salvar.php?";
+     url += "var_id=";
+   
+     url += var_id;
+     url += "&consumo_kwh=";
+     url += consumo_kwh;
+     url += "&credito_in=";
+     url += credito_in;
+    url += "&estado=";
+     url += estado;
+     url += "&link_enviar=";
+     url += link_enviar;
+   
+      url += "&estado_porta=";
+     url += estado_porta3;
+    
+    
+
+ 
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" +
+               "Connection: close\r\n\r\n");
+   
+               
+  unsigned long timeout = millis();
+  while (client.available() == 0) {
+    if (millis() - timeout > 5000) {
+      Serial.println(">>> tempo esgotado!");
+      client.stop();
+      return;
+    }
+  }
+
+  
+  while (client.available()) {
+    String line = client.readStringUntil('\r');
+ //Serial.print(line); //imprime toda a resposta do servidor*/
+mexico += line;
+  }
+
+  
+  
+///////////////////////////////////////////////////////////////////
+//prog do mexico para filtrar
+
+
+
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'x');
+j = i+1;
+if(mexico[j] == 'x')
+    {
+      aux += 1;
+    }
+}
+
+{
+  j++;
+
+////////////////////////////////////////////////////////////////////
+//prog para imprimir no bluethoot uma frase  
+ char i1[]="credito_recebido0";
+ int i2=0;
+  while( i1[i2]!= '0'){ SerialBT.write(i1[i2]); i2++;  }
+  SerialBT.write('\n');// pula uma linha no ble
+ 
+//////////////////////////////////////////////////////////////////// 
+//continuacao programa maxico
+  
+do
+    { cred_recebido+=mexico[j];
+        SerialBT.write(mexico[j]);
+     // Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'x');
+//Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+  SerialBT.write('\n');// pula uma linha no ble
+//-------------------------------------------------
+//parte 2
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'y' );
+j = i+1;
+if(mexico[j] == 'y')
+    {
+      aux += 1;
+    }
+}
+{j++;
+do
+    {   obs +=mexico[j];
+      //Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'y');
+//Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+
+//-------------------------------------------------
+//parte 3
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'z' );
+j = i+1;
+if(mexico[j] == 'z')
+    {
+      aux += 1;
+    }
+}
+{j++;
+do
+    {   link_serv+=mexico[j];
+      //Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'z');
+//Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+
+////////////////////////////////////////////////////////////////////
+//prog para imprimir no bluethoot uma frase  
+ char i1[]="Consumo total=0";
+ int i2=0;
+  while( i1[i2]!= '0'){ SerialBT.write(i1[i2]); i2++;  }
+  SerialBT.write('\n');// pula uma linha no ble
+ 
+//////////////////////////////////////////////////////////////////// 
+//continuacao programa mexico
+//--------------------------------------------------------------------------
+//parte 4
+while(aux == 0){do {  i++;  }
+while(mexico[i] != 'w' );
+j = i+1;
+if(mexico[j] == 'w')  {  aux += 1;   } }
+{j++; do {   consumo_total_rec=mexico[j];
+            SerialBT.write(mexico[j]);//imprime ble
+      //Serial.print(mexico[j]);
+      j++;   }
+while(mexico[j] != 'w');
+//Serial.println(); 
+}
+i = 0;j=0;aux = 0; SerialBT.write('\n');// pula uma linha no ble
+/////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+
+if (obs=="porta_aberta"){estado_porta3=2;} 
+if (estado_porta==1 && obs!="porta_aberta"){estado_porta2=1;estado_porta3=0;}                
+  
+//////////////////////////////////////////////////////////////////////////////////
+//logica 2 a ser aplicada apos receber do servidor
+
+cred_recebido_f = cred_recebido.toFloat();
+
+   if (cred_recebido_f < 1 || estado_porta2==0){estado="desligado"; digitalWrite (f1_d2,LOW); 
+   aciona_conta3=0; conta3=0; }
+   else{estado="ligado";digitalWrite(f1_d2, HIGH);aciona_conta3=1; }
+
+if (link_serv==link_enviar){ consumo_kwh=0;
+
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+//qui esta sendo fechado o if que conta ate 5 e envia os dados para o servidor sql
+Serial.println(); Serial.println("saindo da conexao");
+ } //fim do if(conta5>4)
+//////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////
+//chama a funcao enviar TS
+
+if (conta16>15 && consumo_kwh !=0 ){requestURL(hostDomain_ts, hostPort, consumo_kwh); conta16=0; }
+
+
+
+///////////////////////////////////////////////////////////////////////////////////
+    }//FIM DO LOOP
+///////////////////////////////////////////////////////////////////////////////////
+
+
+//******//********//******//*****//
+//                          Aqui COMECA AS FUNCOES                                 //
+//******//********//******//*****//
+
+
+
+//////////////////////////////////////////////////////////////////////////////////
+//FUNCAO 1 -  para enviar dados para chart TS
+
+void requestURL(const char * host_ts, uint8_t port_ts, float consumo_kwh)
+ 
+{  Serial.println("Connecting to domain: " + String(host)); 
+  if (!client.connect(host_ts, port_ts))
+  {   Serial.println("connection failed");  return;  }
+  Serial.println("Connected!"); 
+  // codigo q sera enviado ao servidor TS
+  String getStr = myWriteAPIKey;
+  getStr +="&field1=";
+  getStr += String(consumo_kwh);
+  getStr += "\r\n\r\n";
+   //Serial.println(getStr); 
+  client.print("GET /update HTTP/1.1\n");
+  client.print("Host: api.thingspeak.com\n");
+  client.print("Connection: close\n");
+  client.print("X-THINGSPEAKAPIKEY: "+myWriteAPIKey+"\n");
+  client.print("Content-Type: application/x-www-form-urlencoded\n");
+  client.print("Content-Length: ");
+  client.print(getStr.length());
+  client.print("\n\n");
+  client.print(getStr);
+   unsigned long timeout = millis();
+  while (client.available() == 0) 
+  {    if (millis() - timeout > 5000)     {
+      Serial.println(">>> Client Timeout !");
+      client.stop();   return;    }  } 
+  // lendo e printando na serial todas as linhas do servidor
+  while (client.available()) 
+  {    String line = client.readStringUntil('\r');
+    //Serial.print(line);  
+    } 
+ //Serial.println(); Serial.println("closing connection");
+ client.stop();
+ }
+
+///////////////////////////////////////////////////
+//tira media de tensao
+int mediaTensao()
+{
+ int i;
+ long int soma=0,media;// O valor para 12 bits(4095) é muito alto! Por isso estou usando long int
+  for(i=0;i<60;i++)
+  {
+    soma+=analogRead(35);//modifique para a porta que for usar
+  }
+  media=soma/60;
+  return media;
+}
