@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TCC FATEC SA 2019</title>
+
+    <style type="text/css">
+    /*estilos gerais*/
+    .container{
+        width: 50%;
+        margin:0 auto;
+    
+    }
+/*formulario*/
+        .areaLocalizaID{
+
+            border-radius:5px;
+            background: #8B814C;
+            padding: 10px;
+
+        }
+
+        input {
+            padding: 10px;
+            margin: 8px 0;
+            border: 2px solid #000;
+            border-radius: 4px;
+
+        }
+
+        /*somente campo de entrada
+        input[type=int] {
+            width: 30%;
+                    } */
+
+        input[type=submit] {
+            width:20%;
+            background-color: #000080; 
+            color: #fff;
+            cursor: pointer;
+        }
+
+        /*estilos das tabelas*/
+
+        table {
+
+            border-collapse: collapse;
+            width:100%;
+            margin-top: 10px;
+
+        }
+        /*tituto da tabela*/
+        table th {
+            background-color: #000;
+            color: #fff;
+            height: 30px;
+
+        }
+
+        h1  {
+            width:100%;
+            
+            color: #000;
+            font-size: 14px;
+
+            
+        }
+
+        h2  {
+            width:100%;
+            background-color: #000;
+            color: #FFF;
+            font-size: 20px;
+            border-collapse: collapse;
+            text-align: center;
+        
+            margin-top: 10px;
+
+            
+        }
+
+        h4 {
+            width:100%;
+            background-color: #fff;
+            color: #000;
+            font-size: 20px;
+            border-collapse: collapse;
+            text-align: center;
+        
+            margin-top: 10px;
+
+            
+        }
+
+    </style>
+
+
+<h2>TCC-Gerenciamento de consumo de energia elétrica residencial | |Area Operação | Pré-pago | FATEC Santo andré
+
+
+</h2>
+
+</head>
+<body>
+    <div class = "container">
+        <div class="areaLocalizaID">
+
+    <form action="" method="POST">
+        <input type="password" name="senha" placeholder="digite o autenticador" >
+        <input type="int" name="matricula" placeholder="matricula" >
+        <input type="int" name="id" placeholder="id do usuario" >
+        <input type="submit" name="submit" value="buscar">
+    <h4>Descreva abaixo a Operacao ou manuntenção</h4>
+        <input size=70% type="text" name="descricao" placeholder="escreva aqui">
+
+</form>
+
+
+        
+        
+
+
+
+        </div>
+<?php
+
+include('conexao.php');
+if($_SERVER['REQUEST_METHOD']== "POST"){
+   
+    $pass_user=0;
+    $id_show = $_POST['id'];
+    $matricula = $_POST['matricula'];
+    $senha_web = $_POST['senha'];/*alteracao para senha*/
+    $descricao = $_POST['descricao'];/*insere o numero de 12 digitos*/
+
+
+    /*verifica se a senha esta correta*/
+
+              
+    $sql11 = "SELECT * FROM `2922783_tccweb`.`o&m` where matricula like  $matricula ";
+
+    $stmt = $PDO->prepare($sql11);
+    $stmt->execute();
+    
+    
+
+    while ($linha = $stmt->fetch(PDO::FETCH_OBJ)) {
+    /* mostra o q foi lido na tabela auxiliar
+    echo "<tr>";
+    echo "id=" . $linha->id . " ";
+
+    echo "password encontrado=" . $linha->pass_user . " ";
+    echo " ";
+
+    echo " variavel senha =  " . $pass_user . " ";
+    */
+            
+    $pass_user=$linha->user_pass;
+    }
+
+    /*fim do verifica senha*/
+
+
+
+
+    /*if($id_show == 0 ){
+    if($senha_web != $pass_user ){
+        echo "<h1>usuário não autorizado </h1>";$sql = "SELECT * FROM tcc.pre where id like  9999 ";}*/
+    /* else {$sql = "SELECT * FROM tcc.pre  ";}
+    }       else{ */
+
+    
+    if($senha_web !=$pass_user ){
+        echo "<h1>usuário não autorizado </h1>"; $sql = "SELECT * FROM 2922783_tccweb.pre where id like  9999 "; }
+    else {
+
+        /* inserir credito*/
+
+if($_SERVER['REQUEST_METHOD']== "POST" && $descricao !=""){
+
+ 
+
+    $sql33 = "UPDATE 2922783_tccweb.pre SET obs = '$descricao' WHERE (id = $id_show)";
+    
+        
+    $stmt2 = $PDO->prepare($sql33);
+
+    $stmt2->bindParam(':id', $id_show);
+    $stmt2->bindParam(':descricao', $descricao);
+
+    if($stmt2->execute()){ 
+    $sql34="";
+        echo "<table border=\"1\">";
+
+        echo "<td>enviado com sucesso</td>";    
+        echo "  ";
+        echo "<td> descrição= " . $descricao . "</td> "; 
+        echo "  ";
+        echo "</table>";
+
+
+$sql34 = "INSERT INTO `log_oper`(`id`, `matricula_oper`, `id_user`, `data_oper`, `obs`) VALUES (default,'$matricula','$id_show',default,'$descricao')";
+
+    $id_show = $_POST['id'];
+    $matricula = $_POST['matricula'];
+    $senha_web = $_POST['senha'];/*alteracao para senha*/
+    $descricao = $_POST['descricao'];/*insere o numero de 12 digitos*/
+
+
+
+        
+    $stmt34 = $PDO->prepare($sql34);
+
+    $stmt34->bindParam(':id', $id_show);
+    $stmt34->bindParam(':matricula', $matricula);
+     $stmt34->bindParam(':descricao', $descricao);
+
+
+         if($stmt34->execute()){ 
+        echo "<table border=\"1\">";
+
+        echo "<td>log enviado com sucesso</td>";    
+        echo "  ";
+        echo "<td> matricula= " . $matricula . "</td>" . "<td>" ." Id Usuario= " . $id_show .  "</td> "; 
+        echo "  ";
+        echo "</table>";}
+
+
+    }
+    else {
+        echo "  ";
+        echo "<table border=\"1\">";
+        echo " <td> Erro, favor verificar os dados inseridos </td>";
+        echo "</table>";
+        echo "  ";
+    }
+
+
+    }
+            /* fim do inserir credito*/
+
+
+
+
+
+        $sql = "SELECT * FROM 2922783_tccweb.pre where id like  $id_show ";}
+    
+     
+ 
+
+
+
+    } else{
+
+    echo "<h1>DIGITE UM ID VALIDO PARA BUSCA</h1>";
+    $sql = "SELECT * FROM 2922783_tccweb.pre where id like  9999 ";
+
+            }
+
+    $stmt = $PDO->prepare($sql);
+    $stmt->execute();
+
+
+
+echo "<table border=\"1\">";
+echo "<tr> <th>id</th> <th>nome</th> <th>ultima_leitura</th> <th>consumo_watt</th> <th>consumo_total</th>
+ <th>credito_atual</th> <th>credito_restante </th> <th>estado</th> <th>credito_in</th> <th>obs</th></tr>";
+
+
+while ($linha = $stmt->fetch(PDO::FETCH_OBJ)) {
+
+
+    echo "<tr>";
+    echo "<td>" . $linha->id . "</td>";
+    echo "<td>" . $linha->nome . "</td>";
+    echo "<td>" . $linha->ultima_leitura . "</td>";
+    echo "<td>" . $linha->consumo_total . "</td>";
+    echo "<td>" . $linha->consumo_kwh . "</td>";
+    echo "<td>" . $linha->credito_atual . "</td>";
+    echo "<td>" . $linha->cred_restante . "</td>";
+    echo "<td>" . $linha->estado . "</td>";
+    echo "<td>" . $linha->credito_in . "</td>";
+     echo "<td>" . $linha->obs . "</td>";
+    echo "</tr> ";
+
+
+
+$linha_var= $linha->localizacao ;
+
+
+}
+
+echo "</table>";
+
+echo "<h1> </h1>";
+
+echo "<h1> </h1>";
+echo "<h1> </h1>";
+
+echo " " . $linha_var . "";
+
+
+?>
+
+
+
+</div>
+
+</body>
+
+
+
+
+
+
+</html>
