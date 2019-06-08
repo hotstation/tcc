@@ -1,0 +1,378 @@
+#include <Wire.h>
+#include <LCD.h>
+#include <LiquidCrystal_I2C.h>
+////////////////////////
+//conectar wifi e server
+#include <ESP8266WiFi.h>
+const char* ssid     = "";
+const char* password = "";
+
+const char* host = "192.168.1.32";
+
+//////////////////////
+//contador de segundo e contadores para tempo
+
+long previousMillis = 0;        // Variável de controle do tempo
+long redLedInterval = 1000;     // Tempo em ms do intervalo a ser executado
+int seg=0;//mede o segundos no total
+int conta1=0; //conta o tempo ate 1 
+int conta5=0; //conta o tempo ate 5
+
+///////////////////////////
+
+
+
+
+#define I2C_ADDR     0x3F  // Define I2C Address where the PCF8574A is
+#define BACKLIGHT_PIN     3
+#define En_pin  2
+#define Rw_pin  1
+#define Rs_pin  0
+#define D4_pin  4
+#define D5_pin  5
+#define D6_pin  6
+#define D7_pin  7
+
+int n = 1;
+//byte i = 0;
+
+
+
+LiquidCrystal_I2C  lcd(I2C_ADDR,En_pin,Rw_pin,Rs_pin,D4_pin,D5_pin,D6_pin,D7_pin);
+/*marcus */
+int var_id=1;
+bool mudatela=0;
+int aux=0;
+int i = 0;
+int j = 0;
+int c=0;
+String cred="";
+String cred1="";
+ String consumo="";
+ String credrec="";
+  String consumo1="";
+ String credrec1="";
+  String cred_in="";
+  String mexico="";
+  bool mensagem_enviar=0;
+  
+ //int vet[11];
+//void limpavet(int vet[]){  int i; for( i = 0; i < 12; i++ ){vet[i]=0;   }  }
+/*fim modificacao marcus*/
+
+#include <Keypad.h> //INCLUSÃO DE BIBLIOTECA
+const byte qtdLinhas = 4; //QUANTIDADE DE LINHAS DO TECLADO
+const byte qtdColunas = 4; //QUANTIDADE DE COLUNAS DO TECLADO
+ 
+//CONSTRUÇÃO DA MATRIZ DE CARACTERES
+char matriz_teclas[qtdLinhas][qtdColunas] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  
+};
+ 
+ 
+byte PinosqtdLinhas[qtdLinhas] = {D3, D5,2}; //PINOS UTILIZADOS PELAS LINHAS
+byte PinosqtdColunas[qtdColunas] = {D7, D8, D6,3}; //PINOS UTILIZADOS PELAS COLUNAS
+ 
+//INICIALIZAÇÃO DO TECLADO
+Keypad meuteclado = Keypad( makeKeymap(matriz_teclas), PinosqtdLinhas, PinosqtdColunas, qtdLinhas, qtdColunas); 
+
+
+
+
+ 
+void setup(){
+  
+ //display
+Serial.begin(115200);
+   lcd.begin (16,2);
+  // Switch on the backlight
+  lcd.setBacklightPin(BACKLIGHT_PIN,POSITIVE);
+  lcd.setBacklight(HIGH);
+  lcd.home ();                   // go home
+  lcd.setCursor ( 0, 0 );  
+  lcd.print("INSIRE O CODIGO:");  
+
+/////////////////////////////////////////////////////////////////
+  // CONECTANDO COM A INTERNET
+
+  Serial.println();
+  Serial.println();
+  Serial.print("CONECTANTO COM ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi conectado");
+  Serial.println("endereco IP: ");
+  Serial.println(WiFi.localIP());
+/////////////////////////////////////////
+
+
+  
+
+}
+   void loop()
+  {
+////////////////////////////
+//reiniciando variaveis
+  mexico="";
+   credrec="";
+    consumo="";
+    cred_in="";
+     
+////////////////
+//conta segundo
+  unsigned long currentMillis = millis();    //Tempo atual em ms
+
+  //Lógica de verificação do tempo
+  if (currentMillis - previousMillis > redLedInterval) { 
+    previousMillis = currentMillis;    // Salva o tempo atual
+
+seg++;
+conta1++;
+conta5++;   
+  }
+ ///////////////////////
+ //conta 5 para conectar ao servidor
+
+ if(conta5 > 4 && mudatela==1){
+  conta5=0;
+
+
+
+///////////////////////////////////////////////////////////
+ //conectanto ao servidor
+ 
+  Serial.print("conectando com ");
+  Serial.println(host);
+  //wificlient claa para criar uma conexao TCP
+    WiFiClient client;//foi enviado para a parte glebal do codigo
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort)) {
+    Serial.println("falha na conexao");
+    return;
+  }  
+   
+
+/////////////////////////////////////////////////////////////////////////
+  // criando a URL para enviar e receber do servidor
+  String url = "/tccfatecsa/pre/salvar2.php?";
+     url += "var_id=";
+   
+     url += var_id;
+    
+     url += "&credito_in=";
+     url += cred;
+    
+    
+  Serial.print(" solicitando URL: ");
+  Serial.println(url);
+
+  // This will send the request to the server
+ 
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" +
+               "Connection: close\r\n\r\n");
+     Serial.print("enviado=");
+                  Serial.println(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" );//+
+            //   "Connection: close\r\n\r\n");             
+           
+               
+  unsigned long timeout = millis();
+  while (client.available() == 0) {
+    if (millis() - timeout > 5000) {
+      Serial.println(">>> tempo esgotado!");
+      client.stop();
+      return;
+    }
+  }
+
+  
+  while (client.available()) {
+    String line = client.readStringUntil('\r');
+ //Serial.print(line); //imprime toda a resposta do servidor*/
+mexico += line;
+  }
+
+ 
+  
+///////////////////////////////////////////////////////////////////
+//prog do mexico para filtrar
+
+Serial.print(mexico);
+
+
+
+
+//parte 1
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'x' );
+j = i+1;
+if(mexico[j] == 'x')
+    {
+      aux += 1;
+    }
+}
+{j++;
+do
+    {   credrec +=mexico[j];
+      Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'x');
+Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+
+//-------------------------------------------------
+
+//parte 2
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'y' );
+j = i+1;
+if(mexico[j] == 'y')
+    {
+      aux += 1;
+    }
+}
+{j++;
+do
+    {   consumo +=mexico[j];
+      Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'y');
+Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+
+//-------------------------------------------------
+
+
+//parte 3
+while(aux == 0)
+{
+do
+    {
+      i++;
+    }
+while(mexico[i] != 'z' );
+j = i+1;
+if(mexico[j] == 'z')
+    {
+      aux += 1;
+    }
+}
+{j++;
+do
+    {   cred_in +=mexico[j];
+      Serial.print(mexico[j]);
+      j++;
+    }
+while(mexico[j] != 'z');
+Serial.println();
+}
+i = 0;
+j=0;
+aux = 0;
+
+//-------------------------------------------------
+             
+ if (consumo!=""){consumo1=consumo;}
+ if (credrec!=""){credrec1=credrec;}
+Serial.println(); Serial.println("saindo da conexao");
+ } //fim do if(conta5>4)
+
+
+ /////////////////////////////////////////////////
+ 
+
+    if (cred == cred_in ){  c=0;  cred="";  }
+  char tecla_pressionada = meuteclado.getKey(); //VERIFICA SE ALGUMA DAS TECLAS FOI PRESSIONADA
+ 
+  if (tecla_pressionada){ //SE ALGUMA TECLA FOR PRESSIONADA, FAZ
+    if (tecla_pressionada=='C'){mudatela=1;}
+    if (tecla_pressionada=='B'){mudatela=0;}
+    if (tecla_pressionada=='A'){cred="";c=0;}
+      if (c==12){mudatela=1;} 
+   if(mudatela==0 && c<12){
+   
+
+   
+   if  ((tecla_pressionada!='A')&&(tecla_pressionada!='B')&&(tecla_pressionada!='C')){ cred+=tecla_pressionada;}
+    
+     lcd.clear();
+      lcd.setCursor ( 0, 0 );  
+  lcd.print("INSERIR O CODIGO:"); 
+     
+   lcd.setCursor ( 1, 1 );  
+  lcd.print(cred);
+    c++;
+    
+    
+
+    if(c>12){ c=0;  cred=""; }
+    
+  
+  
+  }//fim mudatela ==0
+  
+    
+  }//fim do se apertar bota faz
+
+   if(mudatela==1){
+       
+       if (conta1>0){
+     lcd.clear();
+      lcd.setCursor ( 0, 0 );  
+  lcd.print("consumo=");
+  lcd.print(consumo1); 
+     
+   lcd.setCursor ( 1, 1 ); 
+   lcd.print("credito="); 
+  lcd.print(credrec1);
+//teste na serial
+Serial.println("");
+  Serial.print("consumo=");
+  Serial.println(consumo1); 
+     
+    
+   Serial.print("credito="); 
+  Serial.println(credrec1);
+  
+
+  conta1=0;
+       }//fim conta 1 para imprimir
+    }//fim do mudaleta1 
+
+ 
+
+
+    
+    
+    }//loop fim
+    
+
+
